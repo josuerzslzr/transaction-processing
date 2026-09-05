@@ -1,0 +1,19 @@
+@startuml lifecycle-transition
+title Conditional Lifecycle Transition
+
+participant "Payment Processor" as Processor
+database "DynamoDB" as DB
+
+Processor -> DB: strong GetItem(PAYMENT)
+DB --> Processor: status=PROCESSING, version=2
+Processor -> DB: transaction\ncondition PROCESSING + version 2\nupdate to terminal version 3\nput terminal event
+
+alt this command wins
+  DB --> Processor: committed
+else condition fails
+  DB --> Processor: cancelled
+  Processor -> DB: strong GetItem(PAYMENT)
+  DB --> Processor: current state/version
+  Processor -> Processor: classify duplicate as no-op\nor competing transition as conflict
+end
+@enduml

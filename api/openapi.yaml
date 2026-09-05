@@ -1,0 +1,553 @@
+openapi: 3.1.0
+info:
+  title: Payment Processing Practice API
+  version: 1.0.0
+  summary: Create and retrieve simulated payments.
+  description: |
+    Contract-first API for the initial payment slice. This is a practice system: it does not
+    contact a bank, move money, or reconcile a transfer. `X-Client-Id` supplies development
+    tenant context and is not an authentication mechanism.
+servers:
+  - url: /
+security: []
+tags:
+  - name: Payments
+    description: Create and retrieve client-scoped simulated payments.
+
+paths:
+  /v1/payments:
+    post:
+      tags: [Payments]
+      operationId: createPayment
+      summary: Create a payment
+      description: |
+        Creates a simulated bank-transfer payment in `CREATED` state. The idempotency record,
+        payment state, and `PAYMENT_CREATED` event are persisted atomically.
+
+        Replaying the same unexpired `Idempotency-Key` with the same validated payment data
+        returns the originally stored status, `Location`, and response snapshot. Reusing it
+        with different valid payment data returns `422`. The idempotency window is 24 hours
+        from the winning request and is not refreshed by replay.
+
+        The JSON object rejects unknown and duplicate properties. `externalReference` is
+        case-sensitive, is preserved without trimming, and is not a lookup key.
+      parameters:
+        - $ref: '#/components/parameters/ClientId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentRequest'
+            examples:
+              bankTransfer:
+                summary: Simulated EUR bank transfer
+                value:
+                  externalReference: ORDER-12345
+                  amountMinor: 4250
+                  currency: EUR
+                  paymentMethod: BANK_TRANSFER
+      responses:
+        '201':
+          description: |
+            Payment created, or the immutable successful outcome of an identical request is
+            replayed. Both cases intentionally use the same status and representation.
+          headers:
+            Location:
+              description: Relative URI of the created payment.
+              schema:
+                type: string
+                format: uri-reference
+              example: /v1/payments/01a067a6-5e3b-7a3b-8c4d-123456789abc
+            Cache-Control:
+              description: Prevent storage of the payment response by shared or private caches.
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedPayment'
+              examples:
+                created:
+                  $ref: '#/components/examples/CreatedPayment'
+        '400':
+          description: The JSON, body values, or required headers are invalid.
+          content:
+            application/problem+json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MalformedJsonProblem'
+                  - $ref: '#/components/schemas/InvalidRequestBodyProblem'
+                  - $ref: '#/components/schemas/MissingRequiredHeaderProblem'
+                  - $ref: '#/components/schemas/InvalidHeaderValueProblem'
+              examples:
+                malformedJson:
+                  value:
+                    type: /problems/malformed-json
+                    title: Malformed JSON
+                    status: 400
+                    detail: The request body is not valid JSON.
+                invalidRequestBody:
+                  value:
+                    type: /problems/invalid-request-body
+                    title: Invalid request body
+                    status: 400
+                    detail: One or more request fields are invalid.
+                    errors:
+                      - detail: must be a positive integer
+                        pointer: '#/amountMinor'
+                missingRequiredHeader:
+                  value:
+                    type: /problems/missing-required-header
+                    title: Missing required header
+                    status: 400
+                    detail: The Idempotency-Key header is required.
+                invalidHeaderValue:
+                  value:
+                    type: /problems/invalid-header-value
+                    title: Invalid header value
+                    status: 400
+                    detail: The Idempotency-Key header must be a valid UUIDv7.
+        '415':
+          description: The request body is not sent as JSON.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/UnsupportedMediaTypeProblem'
+              example:
+                type: /problems/unsupported-media-type
+                title: Unsupported media type
+                status: 415
+                detail: Content-Type must be application/json.
+        '422':
+          description: The idempotency key is already associated with different payment data.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/IdempotencyKeyReusedProblem'
+              example:
+                type: /problems/idempotency-key-reused
+                title: Idempotency key reused
+                status: 422
+                detail: The idempotency key was previously used with different payment data.
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /v1/payments/{paymentId}:
+    get:
+      tags: [Payments]
+      operationId: getPayment
+      summary: Retrieve a payment
+      description: |
+        Retrieves the authoritative current payment state using a strongly consistent read.
+        A nonexistent payment and a payment owned by another client produce the same response.
+      parameters:
+        - $ref: '#/components/parameters/ClientId'
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Current payment representation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+              examples:
+                created:
+                  $ref: '#/components/examples/CreatedPayment'
+        '400':
+          description: A required header or the payment path parameter is invalid.
+          content:
+            application/problem+json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MissingRequiredHeaderProblem'
+                  - $ref: '#/components/schemas/InvalidHeaderValueProblem'
+                  - $ref: '#/components/schemas/InvalidPathParameterProblem'
+              examples:
+                missingRequiredHeader:
+                  value:
+                    type: /problems/missing-required-header
+                    title: Missing required header
+                    status: 400
+                    detail: The X-Client-Id header is required.
+                invalidHeaderValue:
+                  value:
+                    type: /problems/invalid-header-value
+                    title: Invalid header value
+                    status: 400
+                    detail: The X-Client-Id header must be a valid UUIDv7.
+                invalidPathParameter:
+                  value:
+                    type: /problems/invalid-path-parameter
+                    title: Invalid path parameter
+                    status: 400
+                    detail: The paymentId path parameter must be a valid UUIDv7.
+        '404':
+          description: No payment is visible to this client under the supplied payment ID.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/PaymentNotFoundProblem'
+              example:
+                type: /problems/payment-not-found
+                title: Payment not found
+                status: 404
+                detail: The requested payment was not found.
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  parameters:
+    ClientId:
+      name: X-Client-Id
+      in: header
+      required: true
+      description: |
+        UUIDv7 identifying the client company that owns the payment. This is development
+        tenant context, not proof of identity or authorization.
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+      example: 01a067a6-5e3a-7a3b-8c4d-123456789abc
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: UUIDv7 identifying one logical create-payment operation for this client.
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+      example: 01a067a6-5e3d-7a3b-8c4d-123456789abc
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      description: UUIDv7 returned by the create-payment operation.
+      schema:
+        $ref: '#/components/schemas/UuidV7'
+      example: 01a067a6-5e3b-7a3b-8c4d-123456789abc
+
+  schemas:
+    UuidV7:
+      type: string
+      format: uuid
+      pattern: '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-7[0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$'
+      description: RFC 9562 UUID version 7.
+
+    CreatePaymentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - externalReference
+        - amountMinor
+        - currency
+        - paymentMethod
+      properties:
+        externalReference:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+          description: |
+            Opaque, case-sensitive, non-unique client reference. It must not be whitespace-only;
+            the server preserves it exactly and does not trim it.
+          example: ORDER-12345
+        amountMinor:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Positive amount in the currency's minor unit; EUR cents in this version.
+          example: 4250
+        currency:
+          type: string
+          enum: [EUR]
+        paymentMethod:
+          type: string
+          enum: [BANK_TRANSFER]
+
+    Payment:
+      type: object
+      additionalProperties: false
+      required:
+        - paymentId
+        - externalReference
+        - amountMinor
+        - currency
+        - paymentMethod
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        paymentId:
+          $ref: '#/components/schemas/UuidV7'
+        externalReference:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '.*\S.*'
+        amountMinor:
+          type: integer
+          format: int64
+          minimum: 1
+        currency:
+          type: string
+          enum: [EUR]
+        paymentMethod:
+          type: string
+          enum: [BANK_TRANSFER]
+        status:
+          type: string
+          enum: [CREATED, PROCESSING, SUCCEEDED, FAILED]
+        createdAt:
+          type: string
+          format: date-time
+          description: UTC RFC 3339 timestamp represented with millisecond precision.
+        updatedAt:
+          type: string
+          format: date-time
+          description: UTC RFC 3339 timestamp represented with millisecond precision.
+
+    CreatedPayment:
+      allOf:
+        - $ref: '#/components/schemas/Payment'
+        - type: object
+          properties:
+            status:
+              type: string
+              const: CREATED
+
+    Problem:
+      type: object
+      description: RFC 9457 problem detail. Clients use `type` as the application error identity.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+          description: Advisory copy of the matching HTTP response status.
+        detail:
+          type: string
+          description: Safe occurrence-specific explanation; clients must not parse it as a code.
+        instance:
+          type: string
+          format: uri-reference
+          description: Optional identifier for this occurrence.
+        errors:
+          type: array
+          description: |
+            Present only when individual request-body failures have trustworthy JSON pointers.
+          items:
+            $ref: '#/components/schemas/RequestBodyError'
+      additionalProperties: true
+
+    RequestBodyError:
+      type: object
+      additionalProperties: false
+      required: [detail, pointer]
+      properties:
+        detail:
+          type: string
+          description: Human-readable explanation of this body-field failure.
+        pointer:
+          type: string
+          description: RFC 6901 JSON Pointer expressed as a URI fragment.
+          example: '#/amountMinor'
+
+    MalformedJsonProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/malformed-json
+            title:
+              type: string
+              const: Malformed JSON
+            status:
+              type: integer
+              const: 400
+
+    InvalidRequestBodyProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/invalid-request-body
+            title:
+              type: string
+              const: Invalid request body
+            status:
+              type: integer
+              const: 400
+
+    MissingRequiredHeaderProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/missing-required-header
+            title:
+              type: string
+              const: Missing required header
+            status:
+              type: integer
+              const: 400
+
+    InvalidHeaderValueProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/invalid-header-value
+            title:
+              type: string
+              const: Invalid header value
+            status:
+              type: integer
+              const: 400
+
+    InvalidPathParameterProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/invalid-path-parameter
+            title:
+              type: string
+              const: Invalid path parameter
+            status:
+              type: integer
+              const: 400
+
+    PaymentNotFoundProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/payment-not-found
+            title:
+              type: string
+              const: Payment not found
+            status:
+              type: integer
+              const: 404
+
+    UnsupportedMediaTypeProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/unsupported-media-type
+            title:
+              type: string
+              const: Unsupported media type
+            status:
+              type: integer
+              const: 415
+
+    IdempotencyKeyReusedProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/idempotency-key-reused
+            title:
+              type: string
+              const: Idempotency key reused
+            status:
+              type: integer
+              const: 422
+
+    InternalErrorProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/internal-error
+            title:
+              type: string
+              const: Internal error
+            status:
+              type: integer
+              const: 500
+
+    ServiceUnavailableProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: /problems/service-unavailable
+            title:
+              type: string
+              const: Service unavailable
+            status:
+              type: integer
+              const: 503
+
+  responses:
+    InternalError:
+      description: An unexpected internal failure occurred without exposing implementation details.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/InternalErrorProblem'
+          example:
+            type: /problems/internal-error
+            title: Internal error
+            status: 500
+            detail: An unexpected error occurred.
+    ServiceUnavailable:
+      description: |
+        A required dependency is unavailable or the transaction outcome cannot be established
+        safely after bounded retries.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ServiceUnavailableProblem'
+          example:
+            type: /problems/service-unavailable
+            title: Service unavailable
+            status: 503
+            detail: The service is temporarily unable to process the request.
+
+  examples:
+    CreatedPayment:
+      summary: Newly created payment
+      value:
+        paymentId: 01a067a6-5e3b-7a3b-8c4d-123456789abc
+        externalReference: ORDER-12345
+        amountMinor: 4250
+        currency: EUR
+        paymentMethod: BANK_TRANSFER
+        status: CREATED
+        createdAt: '2026-09-03T14:22:31.483Z'
+        updatedAt: '2026-09-03T14:22:31.483Z'

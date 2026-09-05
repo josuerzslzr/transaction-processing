@@ -1,0 +1,33 @@
+@startuml idempotent-create
+title Idempotent Payment Creation
+
+actor Client
+participant "Payment API" as API
+database "DynamoDB" as DB
+
+Client -> API: POST /v1/payments\nclient ID + idempotency key + JSON
+API -> API: validate request\ncanonicalize and hash request
+API -> DB: strong GetItem(idempotency PK, IDEMPOTENCY)
+
+alt unexpired record with same request hash
+  DB --> API: stored 201 outcome
+  API --> Client: 201 + same Location and body
+else unexpired record with different request hash
+  DB --> API: existing request hash
+  API --> Client: 422 problem
+else absent or logically expired
+  DB --> API: absent/expired
+  API -> API: generate payment/event UUIDv7 and snapshot
+  API -> DB: TransactWriteItems\nput idempotency + payment + event
+  alt transaction commits
+    DB --> API: success
+    API --> Client: 201 + Location and body
+  else conditional or transaction conflict
+    DB --> API: transaction cancelled
+    API -> DB: strong GetItem(idempotency PK, IDEMPOTENCY)
+    DB --> API: winner, absence, or unresolved dependency
+    API -> API: classify as replay, key reuse,\nbounded retry, or unavailable
+    API --> Client: documented result
+  end
+end
+@enduml

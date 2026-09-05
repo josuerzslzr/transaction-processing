@@ -1,0 +1,20 @@
+@startuml payment-lifecycle
+title Initial Payment Lifecycle
+
+[*] --> CREATED : createPayment
+CREATED --> PROCESSING : startProcessing
+PROCESSING --> SUCCEEDED : recordSuccess
+PROCESSING --> FAILED : recordFailure
+SUCCEEDED --> [*]
+FAILED --> [*]
+
+note right of CREATED
+  Persisted and returned by POST.
+  No external payment has occurred.
+end note
+
+note bottom of SUCCEEDED
+  SUCCEEDED and FAILED are terminal
+  for the current lifecycle.
+end note
+@enduml
