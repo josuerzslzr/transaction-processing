@@ -14,7 +14,7 @@ This is the living execution plan and status tracker for the project described i
 
 | # | Status | Iteration | Objective and completion gate |
 |---|---|---|---|
-| 1 | `IN_PROGRESS` | Architecture baseline | Agree on access patterns, REST operations, DynamoDB keys, idempotency, lifecycle commands, concurrency, errors, component boundaries, and testing strategy. Complete when documented and approved; no production implementation yet. |
+| 1 | `COMPLETE` | Architecture baseline | Agree on access patterns, REST operations, DynamoDB keys, idempotency, lifecycle commands, concurrency, errors, component boundaries, and testing strategy. Complete when documented and approved; no production implementation yet. |
 | 2 | `NOT_STARTED` | Core payment slice | Build the Spring Boot foundation and implement idempotent creation and retrieval using standalone DynamoDB Local. Atomically store idempotency, state, and creation event records. Complete when unit and integration tests prove replay, conflicts, validation, and money rules. |
 | 3 | `NOT_STARTED` | Minikube foundation | Containerize the working slice and establish minikube as the standard full-system local runtime. Complete with a documented clean bootstrap and end-to-end payment test. |
 | 4 | `NOT_STARTED` | Lifecycle and concurrency | Implement valid generic transitions, optimistic concurrency, and atomic state-plus-event writes independently of messaging. Complete when competing updates and invalid transitions cannot corrupt state or history. |

@@ -68,20 +68,16 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreatedPayment'
+                $ref: '#/components/schemas/CreatePaymentResponse'
               examples:
                 created:
-                  $ref: '#/components/examples/CreatedPayment'
+                  $ref: '#/components/examples/PaymentInCreatedState'
         '400':
           description: The JSON, body values, or required headers are invalid.
           content:
             application/problem+json:
               schema:
-                oneOf:
-                  - $ref: '#/components/schemas/MalformedJsonProblem'
-                  - $ref: '#/components/schemas/InvalidRequestBodyProblem'
-                  - $ref: '#/components/schemas/MissingRequiredHeaderProblem'
-                  - $ref: '#/components/schemas/InvalidHeaderValueProblem'
+                $ref: '#/components/schemas/ProblemDetail'
               examples:
                 malformedJson:
                   value:
@@ -115,7 +111,7 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/UnsupportedMediaTypeProblem'
+                $ref: '#/components/schemas/ProblemDetail'
               example:
                 type: /problems/unsupported-media-type
                 title: Unsupported media type
@@ -126,7 +122,7 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/IdempotencyKeyReusedProblem'
+                $ref: '#/components/schemas/ProblemDetail'
               example:
                 type: /problems/idempotency-key-reused
                 title: Idempotency key reused
@@ -157,16 +153,13 @@ paths:
                 $ref: '#/components/schemas/Payment'
               examples:
                 created:
-                  $ref: '#/components/examples/CreatedPayment'
+                  $ref: '#/components/examples/PaymentInCreatedState'
         '400':
           description: A required header or the payment path parameter is invalid.
           content:
             application/problem+json:
               schema:
-                oneOf:
-                  - $ref: '#/components/schemas/MissingRequiredHeaderProblem'
-                  - $ref: '#/components/schemas/InvalidHeaderValueProblem'
-                  - $ref: '#/components/schemas/InvalidPathParameterProblem'
+                $ref: '#/components/schemas/ProblemDetail'
               examples:
                 missingRequiredHeader:
                   value:
@@ -191,7 +184,7 @@ paths:
           content:
             application/problem+json:
               schema:
-                $ref: '#/components/schemas/PaymentNotFoundProblem'
+                $ref: '#/components/schemas/ProblemDetail'
               example:
                 type: /problems/payment-not-found
                 title: Payment not found
@@ -311,7 +304,7 @@ components:
           format: date-time
           description: UTC RFC 3339 timestamp represented with millisecond precision.
 
-    CreatedPayment:
+    CreatePaymentResponse:
       allOf:
         - $ref: '#/components/schemas/Payment'
         - type: object
@@ -320,14 +313,29 @@ components:
               type: string
               const: CREATED
 
-    Problem:
+    ProblemDetail:
       type: object
-      description: RFC 9457 problem detail. Clients use `type` as the application error identity.
+      description: |
+        RFC 9457 problem detail compatible with Spring's `ProblemDetail`. Clients use `type`
+        as the application error identity. `about:blank` is reserved for unmodeled
+        framework-level HTTP failures.
       required: [type, title, status, detail]
       properties:
         type:
           type: string
           format: uri-reference
+          enum:
+            - /problems/malformed-json
+            - /problems/invalid-request-body
+            - /problems/missing-required-header
+            - /problems/invalid-header-value
+            - /problems/invalid-path-parameter
+            - /problems/payment-not-found
+            - /problems/unsupported-media-type
+            - /problems/idempotency-key-reused
+            - /problems/internal-error
+            - /problems/service-unavailable
+            - about:blank
         title:
           type: string
         status:
@@ -337,7 +345,10 @@ components:
           description: Advisory copy of the matching HTTP response status.
         detail:
           type: string
-          description: Safe occurrence-specific explanation; clients must not parse it as a code.
+          description: |
+            Safe occurrence-specific summary; clients must not parse it as a code. For request
+            validation, this summarizes the overall failure while `errors` identifies individual
+            body-field failures.
         instance:
           type: string
           format: uri-reference
@@ -345,7 +356,9 @@ components:
         errors:
           type: array
           description: |
-            Present only when individual request-body failures have trustworthy JSON pointers.
+            Present only for invalid request bodies when individual failures have trustworthy
+            JSON pointers. Each entry describes one failure rather than repeating the top-level
+            `detail` summary.
           items:
             $ref: '#/components/schemas/RequestBodyError'
       additionalProperties: true
@@ -363,163 +376,13 @@ components:
           description: RFC 6901 JSON Pointer expressed as a URI fragment.
           example: '#/amountMinor'
 
-    MalformedJsonProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/malformed-json
-            title:
-              type: string
-              const: Malformed JSON
-            status:
-              type: integer
-              const: 400
-
-    InvalidRequestBodyProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/invalid-request-body
-            title:
-              type: string
-              const: Invalid request body
-            status:
-              type: integer
-              const: 400
-
-    MissingRequiredHeaderProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/missing-required-header
-            title:
-              type: string
-              const: Missing required header
-            status:
-              type: integer
-              const: 400
-
-    InvalidHeaderValueProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/invalid-header-value
-            title:
-              type: string
-              const: Invalid header value
-            status:
-              type: integer
-              const: 400
-
-    InvalidPathParameterProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/invalid-path-parameter
-            title:
-              type: string
-              const: Invalid path parameter
-            status:
-              type: integer
-              const: 400
-
-    PaymentNotFoundProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/payment-not-found
-            title:
-              type: string
-              const: Payment not found
-            status:
-              type: integer
-              const: 404
-
-    UnsupportedMediaTypeProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/unsupported-media-type
-            title:
-              type: string
-              const: Unsupported media type
-            status:
-              type: integer
-              const: 415
-
-    IdempotencyKeyReusedProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/idempotency-key-reused
-            title:
-              type: string
-              const: Idempotency key reused
-            status:
-              type: integer
-              const: 422
-
-    InternalErrorProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/internal-error
-            title:
-              type: string
-              const: Internal error
-            status:
-              type: integer
-              const: 500
-
-    ServiceUnavailableProblem:
-      allOf:
-        - $ref: '#/components/schemas/Problem'
-        - type: object
-          properties:
-            type:
-              type: string
-              const: /problems/service-unavailable
-            title:
-              type: string
-              const: Service unavailable
-            status:
-              type: integer
-              const: 503
-
   responses:
     InternalError:
       description: An unexpected internal failure occurred without exposing implementation details.
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/InternalErrorProblem'
+            $ref: '#/components/schemas/ProblemDetail'
           example:
             type: /problems/internal-error
             title: Internal error
@@ -532,7 +395,7 @@ components:
       content:
         application/problem+json:
           schema:
-            $ref: '#/components/schemas/ServiceUnavailableProblem'
+            $ref: '#/components/schemas/ProblemDetail'
           example:
             type: /problems/service-unavailable
             title: Service unavailable
@@ -540,7 +403,7 @@ components:
             detail: The service is temporarily unable to process the request.
 
   examples:
-    CreatedPayment:
+    PaymentInCreatedState:
       summary: Newly created payment
       value:
         paymentId: 01a067a6-5e3b-7a3b-8c4d-123456789abc
