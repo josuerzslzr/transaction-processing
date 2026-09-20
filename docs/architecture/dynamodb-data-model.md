@@ -1,54 +1,54 @@
 # DynamoDB Data Model
 
-Status: Iteration 1 review candidate  
-Last updated: 2026-09-05
+Status: Iteration 1 approved
+Last updated: 2026-09-20
 
 This model uses one DynamoDB table with string partition and sort keys named `PK` and `SK`.
-The table is authoritative for operational payment state. No GSI is required by the approved
+The table is authoritative for operational transaction state. No GSI is required by the approved
 access patterns.
 
 ## Access patterns
 
 | ID | Access pattern | Key operation | Consistency |
 |---|---|---|---|
-| AP1 | Create one payment and its initial history idempotently | Conditional three-item transaction | Transactional |
+| AP1 | Create one transaction and its initial history idempotently | Conditional three-item transaction | Transactional |
 | AP2 | Resolve a create request by client, operation, and idempotency key | `GetItem` on idempotency PK/SK | Strong |
-| AP3 | Retrieve a payment by client and payment ID | `GetItem` on payment PK and `PAYMENT` | Strong |
-| AP4 | Load state before a lifecycle transition | `GetItem` on payment PK and `PAYMENT` | Strong |
+| AP3 | Retrieve a transaction by client and transaction ID | `GetItem` on transaction PK and `TRANSACTION` | Strong |
+| AP4 | Load state before a lifecycle transition | `GetItem` on transaction PK and `TRANSACTION` | Strong |
 | AP5 | Atomically transition state and append an event | Conditional state update plus event put transaction | Transactional |
-| AP6 | Query authoritative history for one payment and date range | `Query` on payment PK and event SK range | Strong |
+| AP6 | Query authoritative history for one transaction and date range | `Query` on transaction PK and event SK range | Strong |
 
 There is intentionally no access pattern for retrieving by `externalReference`, globally
-finding an event ID, listing payments, or querying across clients. Those requirements need an
+finding an event ID, listing transactions, or querying across clients. Those requirements need an
 explicit future design rather than a speculative index.
 
 ## Key layout
 
 ```text
-Payment
-PK = CLIENT#<clientId>#PAYMENT#<paymentId>
-SK = PAYMENT
+Transaction
+PK = CLIENT#<clientId>#TRANSACTION#<transactionId>
+SK = TRANSACTION
 
-Payment event
-PK = CLIENT#<clientId>#PAYMENT#<paymentId>
+Transaction event
+PK = CLIENT#<clientId>#TRANSACTION#<transactionId>
 SK = EVENT#<occurredAt UTC YYYYMMDD>#<eventId UUIDv7>
 
-Create-payment idempotency
-PK = CLIENT#<clientId>#IDEMPOTENCY#CREATE_PAYMENT#<SHA256(raw Idempotency-Key)>
+Create-transaction idempotency
+PK = CLIENT#<clientId>#IDEMPOTENCY#CREATE_TRANSACTION#<SHA256(raw Idempotency-Key)>
 SK = IDEMPOTENCY
 ```
 
-Embedding `clientId` in the payment partition key makes tenant ownership part of every direct
-read and prevents an unscoped payment lookup. State and history share a partition so a
-payment's operational record and events can be addressed together. Idempotency has a separate
+Embedding `clientId` in the transaction partition key makes tenant ownership part of every direct
+read and prevents an unscoped transaction lookup. State and history share a partition so a
+transaction's operational record and events can be addressed together. Idempotency has a separate
 partition because a retrying client knows its own key but may not know the generated
-`paymentId`.
+`transactionId`.
 
 The event date prefix supports bounded day or month range queries. For September 2026, for
 example:
 
 ```text
-PK = CLIENT#<clientId>#PAYMENT#<paymentId>
+PK = CLIENT#<clientId>#TRANSACTION#<transactionId>
 SK BETWEEN "EVENT#20260901#" AND "EVENT#20260930#\uffff"
 ```
 
@@ -59,8 +59,8 @@ day, but timestamps and UUIDs can collide in ordering across clocks. `fromVersio
 ## Record schema evolution
 
 `schemaVersion` versions a persisted record format, not the `/v1` HTTP contract or the
-payment's optimistic-concurrency `version`. Its meaning is scoped by `entityType`, so payment,
-payment-event, and idempotency records evolve independently even when their current numeric
+transaction's optimistic-concurrency `version`. Its meaning is scoped by `entityType`, so transaction,
+transaction-event, and idempotency records evolve independently even when their current numeric
 versions happen to match.
 
 The DynamoDB adapter owns one immutable current schema version per entity type alongside its
@@ -74,19 +74,20 @@ request-fingerprint algorithm and stored response-snapshot format. Because an un
 can be replayed for 24 hours, a deployment that changes either representation retains support
 for the previous applicable schema versions for at least that window.
 
-## Payment item
+## Transaction item
 
 Required attributes:
 
 | Attribute | Type | Meaning |
 |---|---|---|
 | `PK`, `SK` | String | Keys described above |
-| `entityType` | String | `PAYMENT` |
+| `entityType` | String | `TRANSACTION` |
 | `schemaVersion` | Number | Record schema version, initially `1` |
-| `clientId`, `paymentId` | String | UUIDv7 ownership and resource IDs |
+| `clientId`, `transactionId` | String | UUIDv7 ownership and resource IDs |
 | `externalReference` | String | Opaque client reference, preserved exactly |
 | `amountMinor` | Number | Positive signed 64-bit integer |
 | `currency` | String | `EUR` |
+| `transactionType` | String | Business operation type, initially `PAYMENT` |
 | `paymentMethod` | String | `BANK_TRANSFER` |
 | `status` | String | `CREATED`, `PROCESSING`, `SUCCEEDED`, or `FAILED` |
 | `version` | Number | Optimistic concurrency version, initially `1` |
@@ -96,15 +97,16 @@ Logical JSON example (DynamoDB AttributeValue wrappers omitted):
 
 ```json
 {
-  "PK": "CLIENT#01a067a6-5e3a-7a3b-8c4d-123456789abc#PAYMENT#01a067a6-5e3b-7a3b-8c4d-123456789abc",
-  "SK": "PAYMENT",
-  "entityType": "PAYMENT",
+  "PK": "CLIENT#01a067a6-5e3a-7a3b-8c4d-123456789abc#TRANSACTION#01a067a6-5e3b-7a3b-8c4d-123456789abc",
+  "SK": "TRANSACTION",
+  "entityType": "TRANSACTION",
   "schemaVersion": 1,
   "clientId": "01a067a6-5e3a-7a3b-8c4d-123456789abc",
-  "paymentId": "01a067a6-5e3b-7a3b-8c4d-123456789abc",
+  "transactionId": "01a067a6-5e3b-7a3b-8c4d-123456789abc",
   "externalReference": "ORDER-12345",
   "amountMinor": 4250,
   "currency": "EUR",
+  "transactionType": "PAYMENT",
   "paymentMethod": "BANK_TRANSFER",
   "status": "CREATED",
   "version": 1,
@@ -113,22 +115,22 @@ Logical JSON example (DynamoDB AttributeValue wrappers omitted):
 }
 ```
 
-The payment item is mutable and holds the authoritative current state. `version` is internal
+The transaction item is mutable and holds the authoritative current state. `version` is internal
 and is not returned by the public API.
 
-## Payment event item
+## Transaction event item
 
 Events are immutable records, not an event-sourced reconstruction mechanism. Common envelope
 attributes are:
 
 | Attribute | Type | Meaning |
 |---|---|---|
-| `PK`, `SK` | String | Payment partition and dated event key |
-| `entityType` | String | `PAYMENT_EVENT` |
+| `PK`, `SK` | String | Transaction partition and dated event key |
+| `entityType` | String | `TRANSACTION_EVENT` |
 | `schemaVersion` | Number | Event schema version, initially `1` |
-| `clientId`, `paymentId`, `eventId` | String | UUIDv7 identifiers |
+| `clientId`, `transactionId`, `eventId` | String | UUIDv7 identifiers |
 | `type` | String | Lifecycle event type |
-| `source` | String | Originating component, initially `PAYMENT_API` |
+| `source` | String | Originating component, initially `TRANSACTION_API` |
 | `occurredAt` | String | Authoritative UTC RFC 3339 timestamp with milliseconds |
 | `fromStatus`, `toStatus` | String/null | Lifecycle change |
 | `fromVersion`, `toVersion` | Number/null | Causal state versions |
@@ -138,15 +140,15 @@ Creation event example:
 
 ```json
 {
-  "PK": "CLIENT#01a067a6-5e3a-7a3b-8c4d-123456789abc#PAYMENT#01a067a6-5e3b-7a3b-8c4d-123456789abc",
+  "PK": "CLIENT#01a067a6-5e3a-7a3b-8c4d-123456789abc#TRANSACTION#01a067a6-5e3b-7a3b-8c4d-123456789abc",
   "SK": "EVENT#20260903#01a067a6-5e3c-7a3b-8c4d-123456789abc",
-  "entityType": "PAYMENT_EVENT",
+  "entityType": "TRANSACTION_EVENT",
   "schemaVersion": 1,
   "clientId": "01a067a6-5e3a-7a3b-8c4d-123456789abc",
-  "paymentId": "01a067a6-5e3b-7a3b-8c4d-123456789abc",
+  "transactionId": "01a067a6-5e3b-7a3b-8c4d-123456789abc",
   "eventId": "01a067a6-5e3c-7a3b-8c4d-123456789abc",
-  "type": "PAYMENT_CREATED",
-  "source": "PAYMENT_API",
+  "type": "TRANSACTION_CREATED",
+  "source": "TRANSACTION_API",
   "occurredAt": "2026-09-03T14:22:31.484Z",
   "fromStatus": null,
   "toStatus": "CREATED",
@@ -156,13 +158,14 @@ Creation event example:
     "externalReference": "ORDER-12345",
     "amountMinor": 4250,
     "currency": "EUR",
+    "transactionType": "PAYMENT",
     "paymentMethod": "BANK_TRANSFER"
   }
 }
 ```
 
-Later event types are `PAYMENT_PROCESSING_STARTED`, `PAYMENT_SUCCEEDED`, and
-`PAYMENT_FAILED`. Their `data` maps contain only transition-specific facts approved with the
+Later event types are `TRANSACTION_PROCESSING_STARTED`, `TRANSACTION_SUCCEEDED`, and
+`TRANSACTION_FAILED`. Their `data` maps contain only transition-specific facts approved with the
 corresponding lifecycle iteration.
 
 ## Idempotency item
@@ -175,36 +178,37 @@ Required attributes:
 | `entityType` | String | `IDEMPOTENCY` |
 | `schemaVersion` | Number | Idempotency record, request fingerprint, and response snapshot schema version; initially `1` |
 | `clientId` | String | UUIDv7 client scope |
-| `operationType` | String | `CREATE_PAYMENT` |
+| `operationType` | String | `CREATE_TRANSACTION` |
 | `requestHash` | String | Lowercase hexadecimal SHA-256 of canonical request v1 |
-| `paymentId` | String | UUIDv7 produced by the winning request |
+| `transactionId` | String | UUIDv7 produced by the winning request |
 | `createdAt` | String | UTC RFC 3339 timestamp with milliseconds |
 | `expiresAtEpochSeconds` | Number | Logical expiry and DynamoDB TTL attribute |
 | `responseStatus` | Number | Stored HTTP status, always `201` for this operation |
-| `responseLocation` | String | Stored relative payment URI |
+| `responseLocation` | String | Stored relative transaction URI |
 | `responseBody` | Map | Immutable public create response snapshot |
 
 Example:
 
 ```json
 {
-  "PK": "CLIENT#01a067a6-5e3a-7a3b-8c4d-123456789abc#IDEMPOTENCY#CREATE_PAYMENT#c4b2f6868fa702b34a4b502cefd0d50384768e7a6645a46b5c2ce7dd57599695",
+  "PK": "CLIENT#01a067a6-5e3a-7a3b-8c4d-123456789abc#IDEMPOTENCY#CREATE_TRANSACTION#c4b2f6868fa702b34a4b502cefd0d50384768e7a6645a46b5c2ce7dd57599695",
   "SK": "IDEMPOTENCY",
   "entityType": "IDEMPOTENCY",
   "schemaVersion": 1,
   "clientId": "01a067a6-5e3a-7a3b-8c4d-123456789abc",
-  "operationType": "CREATE_PAYMENT",
-  "requestHash": "3d3fd09b678c3d752c9a745fe8ce161b42406476de28ccb948b359dd5cd29fff",
-  "paymentId": "01a067a6-5e3b-7a3b-8c4d-123456789abc",
+  "operationType": "CREATE_TRANSACTION",
+  "requestHash": "12760cbd7383392c942b05e836a9770f4f8708226b00a0f57591645670a3ac62",
+  "transactionId": "01a067a6-5e3b-7a3b-8c4d-123456789abc",
   "createdAt": "2026-09-03T14:22:31.483Z",
   "expiresAtEpochSeconds": 1788531752,
   "responseStatus": 201,
-  "responseLocation": "/v1/payments/01a067a6-5e3b-7a3b-8c4d-123456789abc",
+  "responseLocation": "/v1/transactions/01a067a6-5e3b-7a3b-8c4d-123456789abc",
   "responseBody": {
-    "paymentId": "01a067a6-5e3b-7a3b-8c4d-123456789abc",
+    "transactionId": "01a067a6-5e3b-7a3b-8c4d-123456789abc",
     "externalReference": "ORDER-12345",
     "amountMinor": 4250,
     "currency": "EUR",
+    "transactionType": "PAYMENT",
     "paymentMethod": "BANK_TRANSFER",
     "status": "CREATED",
     "createdAt": "2026-09-03T14:22:31.483Z",
@@ -226,7 +230,7 @@ Fingerprint only a validated, typed request. Serialize exactly these fields in a
 order as compact UTF-8 JSON using JSON string escaping and no insignificant whitespace:
 
 ```json
-{"amountMinor":4250,"currency":"EUR","externalReference":"ORDER-12345","paymentMethod":"BANK_TRANSFER"}
+{"amountMinor":4250,"currency":"EUR","externalReference":"ORDER-12345","paymentMethod":"BANK_TRANSFER","transactionType":"PAYMENT"}
 ```
 
 Hash those bytes with SHA-256 and store lowercase hexadecimal. Do not include `clientId`, the
@@ -238,18 +242,18 @@ applicable schema versions for at least the 24-hour idempotency window.
 
 ## Atomic create algorithm
 
-The sequence diagram shows executable runtime participants. The `Payment API` lifeline
+The sequence diagram shows executable runtime participants. The `Transaction API` lifeline
 contains its HTTP adapter, application core, and DynamoDB adapter; internal use cases are not
 separate runtime participants.
 
-![Idempotent payment creation](../diagrams/idempotent-create.svg)
+![Idempotent transaction creation](../diagrams/idempotent-create.svg)
 
 [PlantUML source](../diagrams/idempotent-create.puml)
 
 The transaction contains:
 
 1. Put idempotency item with `attribute_not_exists(PK) OR expiresAtEpochSeconds <= :now`.
-2. Put payment item with `attribute_not_exists(PK)`.
+2. Put transaction item with `attribute_not_exists(PK)`.
 3. Put creation event with `attribute_not_exists(PK) AND attribute_not_exists(SK)`.
 
 All three writes commit or none do. The read before the transaction is an optimization and
@@ -272,12 +276,12 @@ There is no current `409` path and no application-level lock.
 Iteration 4 will use optimistic concurrency. For an expected state and version, one transaction
 will:
 
-1. Update the `PAYMENT` item with a condition equivalent to
+1. Update the `TRANSACTION` item with a condition equivalent to
    `status = :expectedStatus AND version = :expectedVersion`.
 2. Set the new status, increment `version`, and set `updatedAt`.
 3. Put one immutable event conditioned on the event key not existing.
 
-The sequence diagram uses `Payment Processor` as the executable runtime caller. Iteration 4
+The sequence diagram uses `Transaction Processor` as the executable runtime caller. Iteration 4
 defines and tests the core transition and transaction rules independently; the processor
 becomes their deployed caller in Iteration 7. The processor invokes the core rules rather than
 owning transition validation.
@@ -296,7 +300,7 @@ Set `ConsistentRead=true` on each applicable SDK `GetItem` or `Query`; this is a
 setting, not a table property.
 
 ```text
-getPayment()                  strong
+getTransaction()                  strong
 resolveCreateIdempotency()    strong
 loadForTransition()           strong
 queryAuthoritativeHistory()   strong

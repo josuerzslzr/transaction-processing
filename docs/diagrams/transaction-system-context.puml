@@ -1,0 +1,12 @@
+@startuml transaction-system-context
+!include <C4/C4_Context>
+
+title Transaction Processing Practice System - System Context
+
+Person(client, "Client company", "A PSP, wallet, merchant, or platform integrating with the API")
+System(transactions, "Transaction processing practice system", "Creates and retrieves simulated transactions while keeping authoritative state in DynamoDB")
+
+Rel(client, transactions, "Creates and retrieves transactions", "HTTPS/JSON")
+
+SHOW_LEGEND()
+@enduml

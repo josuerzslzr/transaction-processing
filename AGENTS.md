@@ -20,7 +20,7 @@ with the user and wait for explicit approval before changing its status.
   that passes it, and refactor while keeping the suite green.
 - Keep changes limited to the current iteration. Do not introduce functionality assigned to
   later iterations or speculative extension points.
-- Preserve clear domain boundaries and keep authoritative payment state in DynamoDB unless
+- Preserve clear domain boundaries and keep authoritative transaction state in DynamoDB unless
   an approved iteration explicitly changes that decision.
 - Record material architectural decisions and verification evidence in the repository.
 
@@ -43,7 +43,7 @@ with the user and wait for explicit approval before changing its status.
 
 ## Safety and scope
 
-- This is a practice system, not a real payment processor.
+- This is a practice system, not a real financial processor.
 - Do not add real payment providers, money movement, settlement, reconciliation, ledger
   behavior, PCI/card data, authentication infrastructure, frontend work, event sourcing, or
   multi-region behavior unless the roadmap is explicitly revised and approved.

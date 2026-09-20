@@ -1,0 +1,26 @@
+@startuml transaction-components
+!include <C4/C4_Component>
+
+title Transaction Processing Practice System - Components and Dependencies
+
+Person(client, "Client company", "Direct API consumer")
+
+Container_Boundary(apiRuntime, "Transaction API executable (transactions-api)") {
+  Component(http, "HTTP adapter", "Kotlin, Spring MVC", "Handwritten controllers and DTOs, validation, RFC 9457 mapping")
+  Component(core, "Domain and application core", "transactions-core, pure Kotlin", "Transaction rules, use cases, ports, UUID/fingerprint abstractions")
+  Component(ports, "Persistence ports", "transactions-core, pure Kotlin", "Atomic create, strongly consistent read, and later transition capabilities")
+  Component(dynamoAdapter, "DynamoDB adapter", "transactions-dynamodb, AWS SDK for Java 2.x", "Record mapping, strong reads, conditional transactions")
+}
+
+ContainerDb(dynamo, "DynamoDB", "DynamoDB Local in Iteration 2", "Authoritative transaction state, immutable events, and idempotency outcomes")
+Container(processor, "Transaction processor", "transactions-processor; introduced in Iteration 7", "Invokes the same core lifecycle use cases")
+
+Rel(client, http, "POST/GET /v1/transactions", "HTTPS/JSON")
+Rel(http, core, "Invokes create/get use cases")
+Rel(core, ports, "Uses")
+Rel(dynamoAdapter, ports, "Implements")
+Rel(dynamoAdapter, dynamo, "Strong reads and transactions", "AWS SDK")
+Rel(processor, dynamo, "Will use core lifecycle rules and the DynamoDB adapter", "AWS SDK")
+
+SHOW_LEGEND()
+@enduml

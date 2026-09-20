@@ -5,8 +5,8 @@ This is the living execution plan and status tracker for the project described i
 
 ## Current status
 
-- Current iteration: 1 — Architecture baseline
-- Overall status: Iteration 1 documentation is validated and ready for user review
+- Current iteration: 2 — Core transaction slice
+- Overall status: Iteration 2 implementation is in progress
 - Allowed iteration statuses: `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `COMPLETE`
 - At most one iteration may be `IN_PROGRESS` at a time.
 
@@ -15,12 +15,12 @@ This is the living execution plan and status tracker for the project described i
 | # | Status | Iteration | Objective and completion gate |
 |---|---|---|---|
 | 1 | `COMPLETE` | Architecture baseline | Agree on access patterns, REST operations, DynamoDB keys, idempotency, lifecycle commands, concurrency, errors, component boundaries, and testing strategy. Complete when documented and approved; no production implementation yet. |
-| 2 | `NOT_STARTED` | Core payment slice | Build the Spring Boot foundation and implement idempotent creation and retrieval using standalone DynamoDB Local. Atomically store idempotency, state, and creation event records. Complete when unit and integration tests prove replay, conflicts, validation, and money rules. |
-| 3 | `NOT_STARTED` | Minikube foundation | Containerize the working slice and establish minikube as the standard full-system local runtime. Complete with a documented clean bootstrap and end-to-end payment test. |
+| 2 | `IN_PROGRESS` | Core transaction slice | Build the Spring Boot foundation and implement idempotent creation and retrieval using standalone DynamoDB Local. Atomically store idempotency, state, and creation event records. Complete when unit and integration tests prove replay, conflicts, validation, and money rules. |
+| 3 | `NOT_STARTED` | Minikube foundation | Containerize the working slice and establish minikube as the standard full-system local runtime. Complete with a documented clean bootstrap and end-to-end transaction test. |
 | 4 | `NOT_STARTED` | Lifecycle and concurrency | Implement valid generic transitions, optimistic concurrency, and atomic state-plus-event writes independently of messaging. Complete when competing updates and invalid transitions cannot corrupt state or history. |
 | 5 | `NOT_STARTED` | Continuous integration | Add GitHub Actions for tests, builds, and container validation. Complete when hosted workflows pass in the GitHub repository the user will initialize and connect manually. |
 | 6 | `NOT_STARTED` | Kinesis design and local evaluation | Decide event contracts, publication reliability, DynamoDB Streams usage, partitioning, ordering, retries, checkpoints, poison-record handling, and LocalStack versus standalone emulation. Complete with an approved ADR and local feasibility proof. |
-| 7 | `NOT_STARTED` | Event-driven processing | Introduce Kinesis and an independently runnable payment processor. Complete when minikube tests prove asynchronous processing, duplicate safety, restart recovery, and authoritative DynamoDB state. |
+| 7 | `NOT_STARTED` | Event-driven processing | Introduce Kinesis and an independently runnable transaction processor. Complete when minikube tests prove asynchronous processing, duplicate safety, restart recovery, and authoritative DynamoDB state. |
 | 8 | `NOT_STARTED` | OpenSearch design and local evaluation | Define search access patterns, document shape, ownership, consistency, replay/rebuild behavior, local runtime, and whether a dedicated search projector is appropriate. Complete with an approved ADR and connectivity proof. |
 | 9 | `NOT_STARTED` | Search implementation | Implement the approved projection flow and search API without making OpenSearch authoritative. Complete when tests prove projection, client isolation, eventual consistency, duplicate handling, and rebuilding. |
 | 10 | `NOT_STARTED` | Datadog observability | Decide whether to use the free tier, trial, or configuration-only validation. Implement the agreed metrics, logs, traces, correlation, dashboards, and monitors without coupling domain logic to Datadog. |

@@ -1,32 +1,32 @@
 openapi: 3.1.0
 info:
-  title: Payment Processing Practice API
+  title: Transaction Processing Practice API
   version: 1.0.0
-  summary: Create and retrieve simulated payments.
+  summary: Create and retrieve simulated transactions.
   description: |
-    Contract-first API for the initial payment slice. This is a practice system: it does not
+    Contract-first API for the initial transaction slice. This is a practice system: it does not
     contact a bank, move money, or reconcile a transfer. `X-Client-Id` supplies development
     tenant context and is not an authentication mechanism.
 servers:
   - url: /
 security: []
 tags:
-  - name: Payments
-    description: Create and retrieve client-scoped simulated payments.
+  - name: Transactions
+    description: Create and retrieve client-scoped simulated transactions.
 
 paths:
-  /v1/payments:
+  /v1/transactions:
     post:
-      tags: [Payments]
-      operationId: createPayment
-      summary: Create a payment
+      tags: [Transactions]
+      operationId: createTransaction
+      summary: Create a transaction
       description: |
-        Creates a simulated bank-transfer payment in `CREATED` state. The idempotency record,
-        payment state, and `PAYMENT_CREATED` event are persisted atomically.
+        Creates a simulated bank-transfer transaction in `CREATED` state. The idempotency record,
+        transaction state, and `TRANSACTION_CREATED` event are persisted atomically.
 
-        Replaying the same unexpired `Idempotency-Key` with the same validated payment data
+        Replaying the same unexpired `Idempotency-Key` with the same validated transaction data
         returns the originally stored status, `Location`, and response snapshot. Reusing it
-        with different valid payment data returns `422`. The idempotency window is 24 hours
+        with different valid transaction data returns `422`. The idempotency window is 24 hours
         from the winning request and is not refreshed by replay.
 
         The JSON object rejects unknown and duplicate properties. `externalReference` is
@@ -39,7 +39,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreatePaymentRequest'
+              $ref: '#/components/schemas/CreateTransactionRequest'
             examples:
               bankTransfer:
                 summary: Simulated EUR bank transfer
@@ -47,31 +47,32 @@ paths:
                   externalReference: ORDER-12345
                   amountMinor: 4250
                   currency: EUR
+                  transactionType: PAYMENT
                   paymentMethod: BANK_TRANSFER
       responses:
         '201':
           description: |
-            Payment created, or the immutable successful outcome of an identical request is
+            Transaction created, or the immutable successful outcome of an identical request is
             replayed. Both cases intentionally use the same status and representation.
           headers:
             Location:
-              description: Relative URI of the created payment.
+              description: Relative URI of the created transaction.
               schema:
                 type: string
                 format: uri-reference
-              example: /v1/payments/01a067a6-5e3b-7a3b-8c4d-123456789abc
+              example: /v1/transactions/01a067a6-5e3b-7a3b-8c4d-123456789abc
             Cache-Control:
-              description: Prevent storage of the payment response by shared or private caches.
+              description: Prevent storage of the transaction response by shared or private caches.
               schema:
                 type: string
                 const: no-store
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreatePaymentResponse'
+                $ref: '#/components/schemas/CreateTransactionResponse'
               examples:
                 created:
-                  $ref: '#/components/examples/PaymentInCreatedState'
+                  $ref: '#/components/examples/TransactionInCreatedState'
         '400':
           description: The JSON, body values, or required headers are invalid.
           content:
@@ -118,7 +119,7 @@ paths:
                 status: 415
                 detail: Content-Type must be application/json.
         '422':
-          description: The idempotency key is already associated with different payment data.
+          description: The idempotency key is already associated with different transaction data.
           content:
             application/problem+json:
               schema:
@@ -127,35 +128,35 @@ paths:
                 type: /problems/idempotency-key-reused
                 title: Idempotency key reused
                 status: 422
-                detail: The idempotency key was previously used with different payment data.
+                detail: The idempotency key was previously used with different transaction data.
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
-  /v1/payments/{paymentId}:
+  /v1/transactions/{transactionId}:
     get:
-      tags: [Payments]
-      operationId: getPayment
-      summary: Retrieve a payment
+      tags: [Transactions]
+      operationId: getTransaction
+      summary: Retrieve a transaction
       description: |
-        Retrieves the authoritative current payment state using a strongly consistent read.
-        A nonexistent payment and a payment owned by another client produce the same response.
+        Retrieves the authoritative current transaction state using a strongly consistent read.
+        A nonexistent transaction and a transaction owned by another client produce the same response.
       parameters:
         - $ref: '#/components/parameters/ClientId'
-        - $ref: '#/components/parameters/PaymentId'
+        - $ref: '#/components/parameters/TransactionId'
       responses:
         '200':
-          description: Current payment representation.
+          description: Current transaction representation.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Payment'
+                $ref: '#/components/schemas/Transaction'
               examples:
                 created:
-                  $ref: '#/components/examples/PaymentInCreatedState'
+                  $ref: '#/components/examples/TransactionInCreatedState'
         '400':
-          description: A required header or the payment path parameter is invalid.
+          description: A required header or the transaction path parameter is invalid.
           content:
             application/problem+json:
               schema:
@@ -178,18 +179,18 @@ paths:
                     type: /problems/invalid-path-parameter
                     title: Invalid path parameter
                     status: 400
-                    detail: The paymentId path parameter must be a valid UUIDv7.
+                    detail: The transactionId path parameter must be a valid UUIDv7.
         '404':
-          description: No payment is visible to this client under the supplied payment ID.
+          description: No transaction is visible to this client under the supplied transaction ID.
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
               example:
-                type: /problems/payment-not-found
-                title: Payment not found
+                type: /problems/transaction-not-found
+                title: Transaction not found
                 status: 404
-                detail: The requested payment was not found.
+                detail: The requested transaction was not found.
         '500':
           $ref: '#/components/responses/InternalError'
         '503':
@@ -202,7 +203,7 @@ components:
       in: header
       required: true
       description: |
-        UUIDv7 identifying the client company that owns the payment. This is development
+        UUIDv7 identifying the client company that owns the transaction. This is development
         tenant context, not proof of identity or authorization.
       schema:
         $ref: '#/components/schemas/UuidV7'
@@ -211,15 +212,15 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: UUIDv7 identifying one logical create-payment operation for this client.
+      description: UUIDv7 identifying one logical create-transaction operation for this client.
       schema:
         $ref: '#/components/schemas/UuidV7'
       example: 01a067a6-5e3d-7a3b-8c4d-123456789abc
-    PaymentId:
-      name: paymentId
+    TransactionId:
+      name: transactionId
       in: path
       required: true
-      description: UUIDv7 returned by the create-payment operation.
+      description: UUIDv7 returned by the create-transaction operation.
       schema:
         $ref: '#/components/schemas/UuidV7'
       example: 01a067a6-5e3b-7a3b-8c4d-123456789abc
@@ -231,13 +232,14 @@ components:
       pattern: '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-7[0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$'
       description: RFC 9562 UUID version 7.
 
-    CreatePaymentRequest:
+    CreateTransactionRequest:
       type: object
       additionalProperties: false
       required:
         - externalReference
         - amountMinor
         - currency
+        - transactionType
         - paymentMethod
       properties:
         externalReference:
@@ -258,24 +260,30 @@ components:
         currency:
           type: string
           enum: [EUR]
+        transactionType:
+          type: string
+          enum: [PAYMENT]
+          description: Business operation represented by this transaction; only payments are supported in this iteration.
         paymentMethod:
           type: string
           enum: [BANK_TRANSFER]
+          description: Required payment rail when `transactionType` is `PAYMENT`.
 
-    Payment:
+    Transaction:
       type: object
       additionalProperties: false
       required:
-        - paymentId
+        - transactionId
         - externalReference
         - amountMinor
         - currency
+        - transactionType
         - paymentMethod
         - status
         - createdAt
         - updatedAt
       properties:
-        paymentId:
+        transactionId:
           $ref: '#/components/schemas/UuidV7'
         externalReference:
           type: string
@@ -289,6 +297,9 @@ components:
         currency:
           type: string
           enum: [EUR]
+        transactionType:
+          type: string
+          enum: [PAYMENT]
         paymentMethod:
           type: string
           enum: [BANK_TRANSFER]
@@ -304,9 +315,9 @@ components:
           format: date-time
           description: UTC RFC 3339 timestamp represented with millisecond precision.
 
-    CreatePaymentResponse:
+    CreateTransactionResponse:
       allOf:
-        - $ref: '#/components/schemas/Payment'
+        - $ref: '#/components/schemas/Transaction'
         - type: object
           properties:
             status:
@@ -330,7 +341,7 @@ components:
             - /problems/missing-required-header
             - /problems/invalid-header-value
             - /problems/invalid-path-parameter
-            - /problems/payment-not-found
+            - /problems/transaction-not-found
             - /problems/unsupported-media-type
             - /problems/idempotency-key-reused
             - /problems/internal-error
@@ -403,13 +414,14 @@ components:
             detail: The service is temporarily unable to process the request.
 
   examples:
-    PaymentInCreatedState:
-      summary: Newly created payment
+    TransactionInCreatedState:
+      summary: Newly created transaction
       value:
-        paymentId: 01a067a6-5e3b-7a3b-8c4d-123456789abc
+        transactionId: 01a067a6-5e3b-7a3b-8c4d-123456789abc
         externalReference: ORDER-12345
         amountMinor: 4250
         currency: EUR
+        transactionType: PAYMENT
         paymentMethod: BANK_TRANSFER
         status: CREATED
         createdAt: '2026-09-03T14:22:31.483Z'

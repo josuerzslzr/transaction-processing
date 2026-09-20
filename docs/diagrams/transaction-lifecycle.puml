@@ -1,7 +1,7 @@
-@startuml payment-lifecycle
-title Initial Payment Lifecycle
+@startuml transaction-lifecycle
+title Initial Transaction Lifecycle
 
-[*] --> CREATED : createPayment
+[*] --> CREATED : createTransaction
 CREATED --> PROCESSING : startProcessing
 PROCESSING --> SUCCEEDED : recordSuccess
 PROCESSING --> FAILED : recordFailure
@@ -10,7 +10,7 @@ FAILED --> [*]
 
 note right of CREATED
   Persisted and returned by POST.
-  No external payment has occurred.
+  No external financial operation has occurred.
 end note
 
 note bottom of SUCCEEDED

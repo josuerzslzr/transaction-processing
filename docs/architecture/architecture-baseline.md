@@ -1,30 +1,35 @@
 # Architecture Baseline
 
-Status: Iteration 1 review candidate  
-Last updated: 2026-09-05
+Status: Iteration 1 approved
+Last updated: 2026-09-20
 
-This document is the architectural hub for the first payment slice. The public HTTP contract
+This document is the architectural hub for the first transaction slice. The public HTTP contract
 is authoritative in [`api/openapi.yaml`](../../api/openapi.yaml), and DynamoDB details are
 authoritative in [`dynamodb-data-model.md`](dynamodb-data-model.md).
 
 ## Scope and language
 
-The system lets a client company register a simulated bank-transfer payment and later retrieve
-it by the generated payment ID. A client is the direct API consumer, not the end payer.
+The system lets a client company register a simulated bank-transfer transaction and later retrieve
+it by the generated transaction ID. A client is the direct API consumer, not the end payer.
 `X-Client-Id` provides tenant context during development; it is intentionally not an
 authentication mechanism.
 
 The first slice has two public use cases:
 
-1. Create a payment idempotently and immediately return its `CREATED` representation.
-2. Retrieve the current representation by `clientId` and `paymentId`.
+1. Create a transaction idempotently and immediately return its `CREATED` representation.
+2. Retrieve the current representation by `clientId` and `transactionId`.
 
-The client must retain the `paymentId` returned by create. `externalReference` is opaque,
+The client must retain the `transactionId` returned by create. `externalReference` is opaque,
 case-sensitive, non-unique, and not searchable in this slice.
 
-The supported payment method is the simulated value `BANK_TRANSFER`. The supported currency
-is `EUR`. No bank identity or provider is recorded because the system neither initiates nor
-reconciles a real transfer.
+The engine and aggregate use transaction terminology because later approved iterations may
+support additional financial operation types. `transactionType` is the explicit discriminator;
+the initial contract accepts only `PAYMENT` and does not implement future types speculatively.
+
+The supported transaction type is `PAYMENT`, whose required payment method is the simulated
+value `BANK_TRANSFER`. The supported currency is `EUR`. No bank identity or provider is recorded
+because the system neither initiates nor reconciles a real transfer. Wallet transfers, refunds,
+and other transaction types are deferred rather than represented by speculative fields.
 
 Explicitly deferred capabilities include cancellation, public transitions, history/list/search
 APIs, Kinesis, a runnable processor, OpenSearch, real providers, reconciliation, settlement,
@@ -32,34 +37,36 @@ ledger behavior, authentication, infrastructure deployment, and multi-region ope
 
 ## System context
 
-![Payment system context](../diagrams/payment-system-context.svg)
+![Transaction system context](../diagrams/transaction-system-context.svg)
 
-[PlantUML source](../diagrams/payment-system-context.puml)
+[PlantUML source](../diagrams/transaction-system-context.puml)
 
 There is no end-consumer actor or real banking system in the current context because neither
 interacts with this practice system.
 
 ## Component boundaries
 
-![Payment components and dependencies](../diagrams/payment-components.svg)
+![Transaction components and dependencies](../diagrams/transaction-components.svg)
 
-[PlantUML source](../diagrams/payment-components.puml)
+[PlantUML source](../diagrams/transaction-components.puml)
 
 The source-code dependency direction is:
 
 ```text
-payments-dynamodb  -> payments-core
-payments-api       -> payments-core + payments-dynamodb
-payments-processor -> payments-core + payments-dynamodb   (Iteration 7)
+transactions-dynamodb  -> transactions-core
+transactions-api       -> transactions-core + transactions-dynamodb
+transactions-processor -> transactions-core + transactions-dynamodb   (Iteration 7)
 ```
 
-`payments-core` and `payments-dynamodb` build as internal library JARs. They are packaged into
+`transactions-core` and `transactions-dynamodb` build as internal library JARs. They are packaged into
 the runnable Spring Boot application rather than published for remote dependency resolution.
-Only `payments-api` and the future `payments-processor` are deployable processes.
+Only `transactions-api` and the future `transactions-processor` are deployable processes.
 
 ## Runtime and build baseline
 
 - One Gradle multi-project monorepo using the Gradle Kotlin DSL and wrapper.
+- Gradle projects live physically under `modules/` while retaining flat logical project paths
+  such as `:transactions-api`; repository-wide build configuration remains at the root.
 - Java 21 toolchain and first-party source written in Kotlin 2.4.10.
 - Spring Boot 4.1.1 with Spring Framework 7.0.9 managed by Boot.
 - Spring MVC and the synchronous AWS SDK for Java 2.x.
@@ -77,8 +84,8 @@ later if a real consumer needs it.
 
 | Operation | Success | Required context | Notes |
 |---|---:|---|---|
-| `POST /v1/payments` | `201` | `X-Client-Id`, `Idempotency-Key` | First request and identical replay return the stored response snapshot and `Location`. |
-| `GET /v1/payments/{paymentId}` | `200` | `X-Client-Id` | Uses a strongly consistent read; nonexistent and wrong-client resources both return `404`. |
+| `POST /v1/transactions` | `201` | `X-Client-Id`, `Idempotency-Key` | First request and identical replay return the stored response snapshot and `Location`. |
+| `GET /v1/transactions/{transactionId}` | `200` | `X-Client-Id` | Uses a strongly consistent read; nonexistent and wrong-client resources both return `404`. |
 
 All identifiers in headers, paths, state, and events are UUIDv7. Create accepts JSON only,
 rejects unknown and duplicate properties, and never silently trims `externalReference`.
@@ -97,7 +104,7 @@ trustworthy pointer exists.
 | 400 | `/problems/missing-required-header` |
 | 400 | `/problems/invalid-header-value` |
 | 400 | `/problems/invalid-path-parameter` |
-| 404 | `/problems/payment-not-found` |
+| 404 | `/problems/transaction-not-found` |
 | 415 | `/problems/unsupported-media-type` |
 | 422 | `/problems/idempotency-key-reused` |
 | 500 | `/problems/internal-error` |
@@ -108,11 +115,11 @@ names, or stack traces. Unmodeled framework-level HTTP failures may use `about:b
 
 ## Lifecycle and commands
 
-![Initial payment lifecycle](../diagrams/payment-lifecycle.svg)
+![Initial transaction lifecycle](../diagrams/transaction-lifecycle.svg)
 
-[PlantUML source](../diagrams/payment-lifecycle.puml)
+[PlantUML source](../diagrams/transaction-lifecycle.puml)
 
-Iteration 2 implements only `createPayment` and `getPayment`. Iteration 4 introduces the
+Iteration 2 implements only `createTransaction` and `getTransaction`. Iteration 4 introduces the
 internal lifecycle commands independently of messaging. Iteration 7 connects those use cases
 to an at-least-once event consumer; it does not move transition rules into the worker.
 
@@ -126,15 +133,15 @@ covering its commands, states, races with success/failure, API behavior, and eve
 
 ## Idempotency and concurrency invariants
 
-- Idempotency is scoped by client and operation, not by `paymentId`, because a retrying client
-  may not yet know the generated payment ID.
+- Idempotency is scoped by client and operation, not by `transactionId`, because a retrying client
+  may not yet know the generated transaction ID.
 - The raw `Idempotency-Key` is hashed for the key and is never stored.
 - The validated request is transformed into a versioned, fixed-field canonical representation
   and hashed; raw JSON bytes are not hashed, so JSON property order is irrelevant.
 - An unexpired key with the same request hash returns the immutable stored `201` outcome. The
-  TTL is not extended. The same key with different valid payment data returns `422`.
+  TTL is not extended. The same key with different valid transaction data returns `422`.
 - Expiry is enforced by the application because DynamoDB TTL deletion is asynchronous. Reuse
-  after 24 hours may create a new payment; the original payment remains.
+  after 24 hours may create a new transaction; the original transaction remains.
 - The idempotency item, initial state, and creation event are written by one conditional
   `TransactWriteItems` call. A failure leaves none of the three items committed.
 - A concurrent loser performs a strongly consistent reread and returns the winner's outcome
@@ -149,11 +156,11 @@ covering its commands, states, races with success/failure, API behavior, and eve
 
 Use test-driven development in implementation iterations:
 
-- `payments-core`: JUnit 6 and AssertJ without a Spring context; use deterministic fakes for
+- `transactions-core`: JUnit 6 and AssertJ without a Spring context; use deterministic fakes for
   ports, clocks, and UUID generation.
-- `payments-dynamodb`: JUnit 6, AssertJ, and the official DynamoDB Local image through
+- `transactions-dynamodb`: JUnit 6, AssertJ, and the official DynamoDB Local image through
   Testcontainers; test the adapter directly without Spring.
-- `payments-api`: Spring Boot Test and MockMvc for HTTP slices; reserve
+- `transactions-api`: Spring Boot Test and MockMvc for HTTP slices; reserve
   `@SpringBootTest(webEnvironment = RANDOM_PORT)` for the complete API-to-DynamoDB flow.
 - MockK is optional and should be used only where a small fake is less expressive.
 
@@ -161,16 +168,16 @@ Iteration 2 acceptance cases are:
 
 1. First create returns `201` and atomically persists exactly one idempotency item, state item,
    and creation event.
-2. Identical replay returns the same `paymentId`, response snapshot, status, and `Location`
+2. Identical replay returns the same `transactionId`, response snapshot, status, and `Location`
    without additional writes.
 3. The same unexpired key with different valid data returns `422` without writes.
-4. Concurrent identical requests converge on one payment and both receive its `201` outcome.
+4. Concurrent identical requests converge on one transaction and both receive its `201` outcome.
 5. Invalid JSON, headers, paths, or body values produce their documented problem type and no
    writes.
-6. Retrieval is strongly consistent and tenant-scoped; a missing or differently owned payment
+6. Retrieval is strongly consistent and tenant-scoped; a missing or differently owned transaction
    returns the same `404` representation.
-7. Logical expiry permits a new payment while leaving the earlier payment intact.
-8. Transaction cancellation never leaves a partial payment, event, or idempotency outcome.
+7. Logical expiry permits a new transaction while leaving the earlier transaction intact.
+8. Transaction cancellation never leaves a partial transaction, event, or idempotency outcome.
 9. Generated and accepted identifiers satisfy UUIDv7, and response bodies never expose the
    internal version or client ID.
 
@@ -187,8 +194,8 @@ Recorded on 2026-09-03, with diagram publishing revalidated on 2026-09-05:
 - PlantUML 1.2026.6 successfully renders all five source diagrams to the committed SVGs using
   the bundled C4-PlantUML 2.13.0 standard library and local Graphviz installation. The
   version-checking render command is documented in [`docs/diagrams`](../diagrams/README.md).
-- A cross-document check confirms that endpoint paths, lifecycle states, problem types,
-  terminology, local links, and the single `IN_PROGRESS` roadmap status agree.
+- A cross-document check confirmed that endpoint paths, lifecycle states, problem types,
+  terminology, and local links agreed at the Iteration 1 approval gate.
 
 ## Iteration 2 handoff
 
