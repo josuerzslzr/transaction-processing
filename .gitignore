@@ -1,0 +1,10 @@
+.gradle/
+.kotlin/
+**/build/
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+**/bin/
+.DS_Store

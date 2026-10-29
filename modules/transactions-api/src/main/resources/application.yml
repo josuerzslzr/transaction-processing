@@ -1,0 +1,9 @@
+transactions:
+  dynamodb:
+    table-name: ${TRANSACTIONS_DYNAMODB_TABLE:transactions}
+    region: ${AWS_REGION:eu-central-1}
+    endpoint: ${TRANSACTIONS_DYNAMODB_ENDPOINT:}
+
+spring:
+  application:
+    name: transactions-api

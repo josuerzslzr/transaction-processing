@@ -1,0 +1,5 @@
+transactions:
+  dynamodb:
+    table-name: transactions
+    region: eu-central-1
+    endpoint: http://localhost:8000
